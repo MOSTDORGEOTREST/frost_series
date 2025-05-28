@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "frost-series"
+version = "0.1.0"
+description = ""
+authors = ["Nick <tnick1502@mail.ru>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.14"
+loguru = "^0.7.3"
+pandas = "^2.2.3"
+xlrd = "^2.0.1"
+matplotlib = "^3.10.3"
+statsmodels = "^0.14.4"
+numpy = "^2.2.6"
+xgboost = "^3.0.1"
+scikit-learn = "^1.6.1"
+streamlit = "^1.45.1"
+openpyxl = "^3.1.5"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+
