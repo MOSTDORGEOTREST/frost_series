@@ -1,8 +1,9 @@
 import matplotlib.pyplot as plt
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Callable
 import pandas as pd
 from matplotlib.patches import Rectangle
+import numpy as np
 
 plt.rcParams.update(
     **{
@@ -97,7 +98,7 @@ def plot_degradation(
     if save_path:
         os.makedirs(save_path, exist_ok=True)
         file_path = os.path.join(save_path, f"{title}.png")
-        fig.savefig(file_path, format='png', dpi=300)
+        fig.savefig(file_path, format='png', dpi=500)
 
     plt.show()
 
@@ -223,7 +224,7 @@ def plot_candlestick_uniform(
     if save_path:
         os.makedirs(save_path, exist_ok=True)
         fname = f"candlestick_uniform_{ylabel}_{ige}.png"
-        fig.savefig(os.path.join(save_path, fname), dpi=300, bbox_inches='tight')
+        fig.savefig(os.path.join(save_path, fname), dpi=500, bbox_inches='tight')
 
     plt.show()
 
@@ -263,7 +264,64 @@ def plot_scatter_with_mean(
     if save_path:
         os.makedirs(save_path, exist_ok=True)
         file_path = os.path.join(save_path, f"Зависимость_{ylabel}_ИГЭ_{ige}.png")
-        plt.savefig(file_path, format='png', dpi=300, bbox_inches='tight')
+        plt.savefig(file_path, format='png', dpi=500, bbox_inches='tight')
+
+    plt.show()
+
+
+def plot_E50_predictions(
+    sample_params: List[float],
+    real_N: np.ndarray,
+    real_E50: np.ndarray,
+    key_sets: List[Dict[int, float]],
+    N_values: np.ndarray,
+    predict_E50_fn: Callable[[List[float], Dict[int, float]], np.ndarray],
+    save_path: Optional[str] = None,
+) -> None:
+    """
+    Визуализация предсказаний E50 при различных наборах начальных точек.
+
+    :param sample_params: физические параметры грунта [rs, r, rd, n, e, W, Sr, WL, WP, Ip, IL]
+    :param real_N: массив значений количества циклов промораживания (реальные данные)
+    :param real_E50: массив экспериментальных значений E50
+    :param key_sets: список словарей начальных точек {N: E50}, по которым выполняется корректировка предсказаний
+    :param N_values: массив всех возможных N, по которым предсказывается E50 (например, [0, 3, 5, ...])
+    :param predict_E50_fn: функция, принимающая (sample_params, initial_E50_dict) и возвращающая массив E50 по N_values
+    """
+
+    plt.figure(figsize=(10, 6))
+
+    # Отображаем экспериментальные (реальные) данные
+    plt.scatter(real_N, real_E50, color='black', label='Реальные данные', zorder=5)
+
+    # Строим предсказания для каждого набора начальныx точек
+    for keys in key_sets:
+        # Предсказание по текущему набору
+        E50_pred = predict_E50_fn(sample_params, keys)
+
+        # Лейбл для легенды графика
+        label = "заданные значения N=" + ",".join(str(k) for k in sorted(keys.keys()))
+
+        # Линия прогноза
+        plt.plot(N_values, E50_pred, linestyle='-', marker='o', markersize=4, label=label)
+
+        # Отображаем начальные точки
+        Ns = list(keys.keys())
+        Es = [keys[n] for n in Ns]
+        plt.scatter(Ns, Es, s=80, zorder=6)
+
+    # Оформление
+    plt.xlabel('Циклы промораживания n, ед.')
+    plt.ylabel('E50, МПа')
+    plt.title('Сравнение прогнозов E50 при разных начальных точках')
+    plt.legend()
+    plt.grid(True)
+
+    # Сохранение графика, если указан путь
+    if save_path:
+        os.makedirs(save_path, exist_ok=True)
+        file_path = os.path.join(save_path, f"TCN forecast.png")
+        plt.savefig(file_path, format='png', dpi=500, bbox_inches='tight')
 
     plt.show()
 
@@ -289,3 +347,5 @@ if __name__ == "__main__":
         },
     }
     plot_degradation(parameters_dict, "Пример_графика", save_path=None, ylabel="Относительная деградация")
+
+
