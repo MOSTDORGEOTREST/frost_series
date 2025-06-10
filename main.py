@@ -1,11 +1,13 @@
 import numpy as np
+from altair import param
+
 from logger_config import logger
 from pprint import pformat
 
 # 📦 Импорт модели деградации и процедуры подбора параметров
 from scripts.math_model import (
-    fit_degradation_model,         # МНК-подбор параметров A, B, C, D
-    degradation_model              # Вычисление модели деградации по параметрам
+    fit_superposition_model,         # МНК-подбор параметров
+    superposition_model              # Вычисление модели деградации по параметрам
 )
 
 # 📈 Импорт функций анализа временных рядов
@@ -42,14 +44,8 @@ forecast_cycles_count = int(60 - np.max(N))
 
 # ⚙️ Подбор параметров модели
 logger.info("▶ Начинается подбор параметров МКЭ")
-(A_est, B_est, C_est, D_est), D_norm = fit_degradation_model(
-    N=N,
-    y=D,
-    A=False
-)
-logger.success(f"✅ Подбор параметров МКЭ завершен. A={A_est}, B={B_est}, C={C_est}, D={D_est}")
-
-#A_est, B_est, C_est, D_est = 1.0, 0.657, 0.574, 0.0087
+params, D_norm, p_max = fit_superposition_model(N, D)
+logger.success(f"✅ Подбор параметров МКЭ завершен. p_inf={params[0]}, lam={params[1]}, gamma={params[2]}, alpha={params[3]}")
 
 
 logger.info("▶ Построение прогноза ARIMA...")
@@ -84,7 +80,7 @@ indices = (N_additional - (last_n + 1)).astype(int)
 
 # Формируем словарь с прогнозами
 predictions = {
-    'LSM':   (N_additional, degradation_model(N_additional, A=A_est, B=B_est, C=C_est, D=D_est)),
+    'LSM':   (N_additional, superposition_model(N_additional, *params)),
     'ARIMA': (N_additional, arima_forecast[indices]),
     'HOLT':  (N_additional, holt_forecast[indices]),
 }
@@ -104,8 +100,8 @@ plot_degradation(
             'D': D_additional_norm.tolist(),
         },
         'LSM': {
-            'N': np.linspace(0, last_n + forecast_cycles_count, 100),
-            'D': degradation_model(np.linspace(0, last_n + forecast_cycles_count, 100), A=A_est, B=B_est, C=C_est, D=D_est),
+            'N': np.linspace(0, last_n + forecast_cycles_count, 1000),
+            'D': superposition_model(np.linspace(0, last_n + forecast_cycles_count, 1000), *params),
         },
         'ARIMA': {
             'N': forecast_n.tolist(),

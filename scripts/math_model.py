@@ -1,108 +1,122 @@
+"""
+Модуль подгонки суперпозиционной модели деградации свойст грунтов при многократном промерзании.
+
+Формула модели::
+
+    p_norm(N) = p_inf + (1 - p_inf) * exp(-(lam * N)**gamma) - alpha * ln(1 + N)
+
+где
+    * ``p_inf``  – остаточное (стабилизировавшееся) значение свойства (0 < p_inf ≤ 1);
+    * ``lam``    – коэффициент, аккумулирующий действие физических факторов (> 0);
+    * ``gamma``  – показатель «резкости» начального спада (> 0);
+    * ``alpha``  – коэффициент логарифмического накопления повреждений (>= 0).
+
+"""
+from typing import Tuple
 import numpy as np
-from typing import Tuple, Optional
 from scipy.optimize import curve_fit
-from functools import partial
 
-def degradation_model(N: np.ndarray, A: float, B: float, C: float, D: float) -> np.ndarray:
+__all__ = [
+    "superposition_model",
+    "fit_superposition_model",
+]
+
+
+def superposition_model(
+        N: np.ndarray,
+        p_inf: float,
+        lam: float,
+        gamma: float,
+        alpha: float
+) -> np.ndarray:
+    """Возвращает значение нормированного параметра после N циклов.
+
+    :param N: массив номеров циклов.
+    :param p_inf: остаточное стабилизировавшееся значение.
+    :param lam: интегральный коэффициент влияния физических факторов (>0).
+    :param gamma: показатель резкости начального спада (>0).
+    :param alpha: коэффициент логарифмической части (≥0).
+    :return: массив p_norm той же формы, что и N.
     """
-    Экспоненциально-логарифмическая модель деградации:
+    return p_inf + (1.0 - p_inf) * np.exp(-np.power(lam * N, gamma)) - alpha * np.log1p(N)
 
-    D(N) = 1 - A * (1 - exp(-B * N)) + С * ln(N + 1)
 
-    :param N: массив номеров циклов (целые >= 0)
-    :param A: Начальное значение при 0 цикле
-    :param B: вклад экспоненциальной фазы (>= 0)
-    :param C: скорость насыщения экспоненты (>= 0)
-    :param D: коэффициент логарифмической фазы (>= 0)
-    :return: массив значений относительной деградации D(N)
+def _normalize(y: np.ndarray) -> Tuple[np.ndarray, float]:
+    """Нормирует измеренные значения по первому элементу.
+
+    :param y: массив абсолютных измерений свойства (shape (M,)).
+    :return: кортеж (p_norm, y_max), где
+             p_norm – нормированные значения,
+             y_max – первое измеренное значение, принятое за 1.
     """
-    return A - B * (1 - np.exp(-C * N)) - D * np.log1p(N + 1)
-
-def simplified_degradation_model(N: np.ndarray, B: float, C: float, D: float) -> np.ndarray:
-    return degradation_model(N, A=1.0, B=B, C=C, D=D)
-
-
-def normalize_values(y: np.ndarray) -> Tuple[np.ndarray, float]:
-    """
-    Нормализует значения по максимальному элементу:
-
-    D_i = yi / y_max
-
-    :param y: массив исходных значений свойства (y0, y1, ..., yM)
-    :return: кортеж (D, y_max) — массив нормализованной деградации и начальное значение
-    """
-    y_max = np.max(y)
-    if y_max == 0:
-        raise ValueError("Первое значение y_max не может быть нулевым для нормализации.")
-    D = y / y_max
-    return D, y_max
+    if y.size == 0:
+        raise ValueError("Пустой массив измерений.")
+    y_max = float(y[0])
+    if y_max <= 0:
+        raise ValueError("Первое значение должно быть положительным.")
+    return y / y_max, y_max
 
 
-def fit_degradation_model(
+def fit_superposition_model(
         N: np.ndarray,
         y: np.ndarray,
-        A: Optional[bool] = True
-) -> Tuple[Tuple[float, float, float], np.ndarray]:
-    """
-    Подбирает параметры модели деградации методом наименьших квадратов.
+        bounds: Tuple[Tuple[float, float, float, float],
+                       Tuple[float, float, float, float]] | None = None,
+        p0: Tuple[float, float, float, float] | None = None
+        ) -> Tuple[Tuple[float, float, float, float], np.ndarray]:
+    """Подбирает параметры суперпозиционной модели методом наименьших квадратов.
 
-    :param N: массив номеров циклов (shape (M+1,))
-    :param y: массив измеренных значений свойства после Ni циклов (shape (M+1,))
-    :param normalize: если True, сначала нормализует y относительно y_max
-    :return: кортеж (params, D_norm), где
-             params = (A_est, B_est, C_est),
-             D_norm = массив нормализованных значений D_i
+    :param N: массив номеров циклов (shape (M,)).
+    :param y: массив измеренных абсолютных значений свойства (shape (M,)).
+    :param bounds: границы параметров в формате (lower, upper); если *None* –
+                   используются значения по умолчанию ((0,1e-8,1e-8,0), (1,10,10,1)).
+    :param p0: начальное приближение параметров; если *None*, оценивается автоматически.
+    :return: кортеж (params, p_norm_pred), где
+             params – оценённые параметры (p_inf, lam, gamma, alpha),
+             p_norm_pred – прогноз нормированных значений свойства на заданных *N*.
+    :raises ValueError: если формы N и y не совпадают или «циклы» отрицательные.
     """
-    # Проверка формата входа
     if N.shape != y.shape:
         raise ValueError("Массивы N и y должны иметь одинаковую форму.")
+    if np.any(N < 0):
+        raise ValueError("Число циклов не может быть отрицательным.")
 
-    # Нормализация
-    D, y_max = normalize_values(y)
+    p_norm, p_max = _normalize(y)
 
-    # Границы параметров: все неотрицательные
-    bounds = (0, 3)
+    if bounds is None:
+        bounds = ((0.0, 1e-8, 1e-8, 0.0), (1.0, 10.0, 10.0, 1.0))
 
-    # Начальная догадка:
-    #   B0 — размах экспоненциальной фазы ≈ D[-1]
-    #   C0 — скорость насыщения ≈ 1 / (последний N)
-    #   D0 — вклад логарифмической фазы ≈ 10% от D[-1]
-    A0 = float(np.max(D))
-    B0 = float(np.min(D))
-    C0 = 1
-    D0 = 0.00001
+    if p0 is None:
+        p0 = (float(p_norm[-1]),         # p_inf – примерно последнее значение
+              1.0 / (N[-1] + 1e-6),      # lam   – порядок 1 / N_max
+              1.0,                       # gamma – экспоненциальный режим
+              0.01)                      # alpha – небольшой
 
-    if A:
-        p0 = [A0, B0, C0, D0]
+    popt, _ = curve_fit(superposition_model, N, p_norm,
+                        p0=p0, bounds=bounds, method="trf")
 
-        popt, _ = curve_fit(
-            f=degradation_model,
-            xdata=N,
-            ydata=D,
-            p0=p0,
-            bounds=bounds,
-            method='trf'
-        )
+    return tuple(map(float, popt)), p_norm, p_max
 
-        A_est, B_est, C_est, D_est = popt
-    else:
-        B0 = float(np.min(D))
-        C0 = 1
-        D0 = 0.00001
-        p0 = [B0, C0, D0]
 
-        # Подгонка модели четырёх параметров
-        popt, _ = curve_fit(
-            f=simplified_degradation_model,
-            xdata=N,
-            ydata=D,
-            p0=p0,
-            bounds=bounds,
-            method='trf'
-        )
+if __name__ == "__main__":
+    import argparse
 
-        # Распаковываем все четыре параметра
-        B_est, C_est, D_est = popt
-        A_est = 1.0
+    N = np.array([0, 3, 5, 10, 24])
+    D = np.array([23.91666667, 17.83333333, 8.21666667, 8.15, 7.83333333])
 
-    return (A_est, B_est, C_est, D_est), D
+    params, p_pred, p_max = fit_superposition_model(N, D)
+
+    print("p_inf  = {:.6f}".format(params[0]))
+    print("lam    = {:.6f}".format(params[1]))
+    print("gamma  = {:.6f}".format(params[2]))
+    print("alpha  = {:.6f}".format(params[3]))
+
+    print("\n----- Прогноз p_norm -----")
+    for n, p in zip(N.astype(int), p_pred):
+        print(f"N={n:4d}: p_norm={p: .6f}")
+
+    import matplotlib.pyplot as plt
+    plt.scatter(N, D, c="b", marker="o")
+
+    plt.plot(np.linspace(0, 30, 100), p_max * superposition_model(np.linspace(0, 30, 100), *params), color="b")
+    plt.show()
