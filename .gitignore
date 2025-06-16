@@ -3,3 +3,6 @@ venv
 **/.idea
 **/.env
 **/.DS_Store
+/build
+/dist
+ReportWidget.spec
